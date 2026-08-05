@@ -25,6 +25,8 @@
 | INV-5 | 曖昧な候補が同時に存在するとき latest-wins で1件に畳まない。`AMBIGUOUS` を返す |
 | INV-6 | Worker のログ・Analytics・エラートレースに snapshot body を残さない |
 | INV-7 | 既存の公開拡張 `show-tab-id` には本機能を載せない（信頼境界の変更にあたるため） |
+| INV-8 | Access を迂回する経路は `ingest/` プレフィックスだけ。特権操作（コード発行・解除・読み取り）を ingest 側へ置かない |
+| INV-9 | `relaySecret` は Durable Object の外へ出さない。認証済みコンソールにも返さない |
 
 ## 2. 識別子
 
@@ -101,19 +103,52 @@ MV3 service worker は listen できないため受動的 API サーバにはな
 | ページ DOM | content script と対象ページが必要。結局 CLI から読む別ブリッジが要る |
 | CDP / DevTools MCP 直結 | 観測IDと操作IDが同じ世界になる点は最良だが、remote debugging 有効化と接続承認が要る |
 
-## 6. API（v0）
+## 6. Access 境界と API（v0）
 
-ベース: `https://dashboard.dxj.jp/browser-check/api/v1`
+`dashboard.dxj.jp` はホスト全体が Cloudflare Access（self_hosted アプリ）配下にある。
+拡張は Access セッションを持てないため、**ingest 経路だけを Bypass する**。
 
-| メソッド | パス | 呼び手 | 認証 |
-|---|---|---|---|
-| POST | `/snapshot` | 拡張 | installation 固有 secret の HMAC |
-| GET | `/target?selector=` | CLI | read-only credential |
+境界は**エンドポイントの列挙ではなくプレフィックスで**表現する。列挙はいずれ漏れ、
+漏れた側は fail-open になる。
+
+| プレフィックス | 呼び手 | 保護 |
+|---|---|---|
+| `/browser-check/` | 人間（コンソール） | Access（SSO） |
+| `/browser-check/api/v1/` | 人間・CLI | Access（SSO / service token） |
+| `/browser-check/ingest/v1/` | 拡張のみ | **Access Bypass** + HMAC 署名 |
+
+| メソッド | パス | 呼び手 |
+|---|---|---|
+| POST | `ingest/v1/snapshot` | 拡張 |
+| POST | `ingest/v1/pair` | 拡張（1回限りのコードを引き換え） |
+| GET | `api/v1/target?selector=` | CLI |
+| GET | `api/v1/installations` | コンソール |
+| POST | `api/v1/pairing-code` | コンソール |
+| POST | `api/v1/revoke` | コンソール |
+
+**pairing コードの発行は `api/` 側に置く**（INV-8）。ingest 側に置くと匿名でコードを発行でき、
+ペアリング自体が意味を失う。
 
 レスポンスの `status` は `TARGET` / `NO_TARGET` / `STALE` / `AMBIGUOUS` のいずれかを必ず明示する。
 
 HMAC は `method + path + sha256(body) + timestamp + sequence` を対象とし、replay window と
 sequence 再利用拒否を持つ。CORS は認証ではないため署名は別途必要。
+`installationId` は認証済みヘッダから取り、body の自己申告は採用しない。
+
+## 6.1 コンソール（人間用 GUI）
+
+`/browser-check/` に Worker がインラインで配信する単一ページ。Access 配下なので、
+ここから到達できる操作はすべて認証済みである。
+
+- ペアリング済みプロファイルの一覧（鮮度・ブラウザ・tab/window・最終受信）
+- selector を選んで、いまエージェントが解決する対象を確認
+- ペアリングコードの発行
+- プロファイルの解除
+
+`relaySecret` は Durable Object の外へ出さない。認証済みコンソールにも返さない。
+
+デザインは DXJ Design System「白の規律」。ライトが既定で、ダークは
+`localStorage('dxj-theme')` に永続する明示選択。`prefers-color-scheme` で既定を反転させない。
 
 ## 7. 権限
 

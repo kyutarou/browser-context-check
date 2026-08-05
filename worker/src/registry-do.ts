@@ -34,6 +34,8 @@ export class BrowserContextRegistry implements DurableObject {
         return this.snapshot(request, url);
       case 'target':
         return this.target(url);
+      case 'installations':
+        return this.installations();
       case 'revoke':
         return this.revoke(request);
       default:
@@ -137,6 +139,24 @@ export class BrowserContextRegistry implements DurableObject {
     const snapshots = await this.listSnapshots();
     const resolution = resolve(snapshots, parseSelector(url.searchParams.get('selector')), Date.now(), TTL_MS);
     return json(resolution);
+  }
+
+  /** Console view: every paired profile with its latest snapshot, if any. */
+  private async installations(): Promise<Response> {
+    const [installations, snapshots] = await Promise.all([this.listInstallations(), this.listSnapshots()]);
+    const byInstallation = new Map(snapshots.map((s) => [s.installationId, s]));
+
+    return json({
+      installations: installations
+        .map((i) => ({
+          installationId: i.installationId,
+          profileAlias: i.profileAlias,
+          createdAt: i.createdAt,
+          // The secret never leaves the Durable Object, not even to an authenticated console.
+          snapshot: byInstallation.get(i.installationId) ?? null,
+        }))
+        .sort((a, b) => a.profileAlias.localeCompare(b.profileAlias)),
+    });
   }
 
   private async revoke(request: Request): Promise<Response> {

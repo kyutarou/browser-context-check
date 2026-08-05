@@ -13,7 +13,9 @@ const SETTINGS_DEFAULTS = {
   sendTitle: false,
   includeIncognito: false,
   fullUrlAllowlist: [],
-  endpoint: 'https://dashboard.dxj.jp/browser-check/api/v1',
+  // The ingest prefix is the only part of the host that bypasses Cloudflare Access; the console
+  // and read APIs sit behind SSO and are not reachable from here.
+  endpoint: 'https://dashboard.dxj.jp/browser-check/ingest/v1',
 };
 
 // tabs.onActivated fires before the new tab's url/title have settled, so coalesce briefly.

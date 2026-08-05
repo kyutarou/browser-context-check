@@ -1,4 +1,5 @@
 import { BrowserContextRegistry } from './registry-do';
+import { CONSOLE_HTML } from './ui';
 
 export { BrowserContextRegistry };
 
@@ -10,60 +11,101 @@ export interface Env {
   DEVICE_ID: string;
 }
 
-const BASE = '/browser-check/api/v1';
+const BASE = '/browser-check';
+
+/**
+ * Path layout, chosen so the Access boundary can be expressed as two prefixes rather than an
+ * enumeration of endpoints — an enumeration eventually misses one, and the miss fails open.
+ *
+ *   /browser-check/            console  -> behind Access (human SSO)
+ *   /browser-check/api/v1/...  console + CLI reads -> behind Access (SSO or service token)
+ *   /browser-check/ingest/v1/… extension writes    -> Access Bypass, HMAC signed
+ */
+const API = `${BASE}/api/v1`;
+const INGEST = `${BASE}/ingest/v1`;
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const { pathname } = url;
 
-    if (!url.pathname.startsWith(BASE)) {
-      return new Response('Not found', { status: 404 });
-    }
-    const route = url.pathname.slice(BASE.length) || '/';
-
-    if (request.method === 'OPTIONS') return preflight(env);
+    if (!pathname.startsWith(BASE)) return new Response('Not found', { status: 404 });
 
     const stub = env.REGISTRY.get(env.REGISTRY.idFromName(env.DEVICE_ID));
 
-    // Snapshot writes come from the extension. They are HMAC signed, so the CORS headers below
-    // are a browser convenience and carry no authority.
-    if (route === '/snapshot' && request.method === 'POST') {
-      const forwarded = new Request(`https://do/?op=snapshot&signedPath=${encodeURIComponent('/snapshot')}`, {
-        method: 'POST',
-        headers: request.headers,
-        body: await request.text(),
+    // ---- extension -> relay (Access bypassed; authenticated by HMAC in the Durable Object) ----
+
+    if (pathname.startsWith(INGEST)) {
+      if (request.method === 'OPTIONS') return preflight(env);
+
+      const op = pathname.slice(INGEST.length);
+
+      if (op === '/snapshot' && request.method === 'POST') {
+        const forwarded = new Request(
+          `https://do/?op=snapshot&signedPath=${encodeURIComponent('/snapshot')}`,
+          { method: 'POST', headers: request.headers, body: await request.text() },
+        );
+        return withCors(await stub.fetch(forwarded), env);
+      }
+
+      if (op === '/pair' && request.method === 'POST') {
+        const body = (await request.json()) as Record<string, unknown>;
+        const forwarded = new Request('https://do/?op=pair', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...body, deviceId: env.DEVICE_ID }),
+        });
+        return withCors(await stub.fetch(forwarded), env);
+      }
+
+      return withCors(new Response('Not found', { status: 404 }), env);
+    }
+
+    // ---- console + CLI reads (Access in front of this hostname is the authentication) ----
+
+    if (pathname.startsWith(API)) {
+      const op = pathname.slice(API.length);
+
+      if (op === '/target' && request.method === 'GET') {
+        const selector = url.searchParams.get('selector') ?? 'lastBrowser';
+        return stub.fetch(`https://do/?op=target&selector=${encodeURIComponent(selector)}`);
+      }
+
+      if (op === '/installations' && request.method === 'GET') {
+        return stub.fetch('https://do/?op=installations');
+      }
+
+      // Issuing a pairing code is a privileged act, so it lives here rather than on the ingest
+      // prefix: only an Access-authenticated human can mint one.
+      if (op === '/pairing-code' && request.method === 'POST') {
+        return stub.fetch('https://do/?op=issue-code');
+      }
+
+      if (op === '/revoke' && request.method === 'POST') {
+        const forwarded = new Request('https://do/?op=revoke', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: await request.text(),
+        });
+        return stub.fetch(forwarded);
+      }
+
+      return new Response('Not found', { status: 404 });
+    }
+
+    // ---- console ----
+
+    if ((pathname === BASE || pathname === `${BASE}/`) && request.method === 'GET') {
+      return new Response(CONSOLE_HTML, {
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+          'content-security-policy':
+            "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'",
+          'x-content-type-options': 'nosniff',
+          'referrer-policy': 'no-referrer',
+        },
       });
-      return withCors(await stub.fetch(forwarded), env);
-    }
-
-    if (route === '/pair' && request.method === 'POST') {
-      const body = await request.json();
-      const forwarded = new Request('https://do/?op=pair', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ...(body as object), deviceId: env.DEVICE_ID }),
-      });
-      return withCors(await stub.fetch(forwarded), env);
-    }
-
-    // Reads are for the CLI. Access sits in front of this hostname, so there is no additional
-    // credential check here — see docs/DESIGN.md §6.
-    if (route === '/target' && request.method === 'GET') {
-      const selector = url.searchParams.get('selector') ?? 'lastBrowser';
-      return stub.fetch(`https://do/?op=target&selector=${encodeURIComponent(selector)}`);
-    }
-
-    if (route === '/pairing-code' && request.method === 'POST') {
-      return stub.fetch('https://do/?op=issue-code');
-    }
-
-    if (route === '/revoke' && request.method === 'POST') {
-      const forwarded = new Request('https://do/?op=revoke', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: await request.text(),
-      });
-      return withCors(await stub.fetch(forwarded), env);
     }
 
     return new Response('Not found', { status: 404 });

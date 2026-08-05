@@ -1,6 +1,6 @@
 import { getInstallationId } from './lib/ids.js';
 
-const DEFAULT_ENDPOINT = 'https://dashboard.dxj.jp/browser-check/api/v1';
+const DEFAULT_ENDPOINT = 'https://dashboard.dxj.jp/browser-check/ingest/v1';
 
 const $ = (id) => document.getElementById(id);
 

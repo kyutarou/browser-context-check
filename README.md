@@ -63,6 +63,28 @@ routinely empty exactly when a CLI runs. Pick the selector that matches your sit
 | `foreground` | the tab holding OS focus right now — for fully autonomous runs |
 | `alias:<name>` | a specific profile, e.g. `alias:edge-main` |
 
+## Console
+
+`https://dashboard.dxj.jp/browser-check/` is the human side: paired profiles and their freshness,
+a live look at what each selector currently resolves to, pairing code issuance, and revocation.
+It sits behind Cloudflare Access, so everything reachable from it is already authenticated.
+
+Pairing codes are minted **here and nowhere else**. The extension-facing prefix cannot issue one.
+
+## Access boundary
+
+The whole hostname is behind Access, but the extension has no Access session — so exactly one
+prefix bypasses it, and that prefix carries no privileged operation:
+
+| prefix | caller | protection |
+| --- | --- | --- |
+| `/browser-check/` | human console | Access (SSO) |
+| `/browser-check/api/v1/` | console + CLI | Access (SSO / service token) |
+| `/browser-check/ingest/v1/` | extension only | Access bypass + HMAC signature |
+
+The boundary is a prefix rather than a list of endpoints on purpose: a list eventually misses one,
+and the miss fails open.
+
 ## Usage
 
 ```bash
