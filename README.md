@@ -137,6 +137,15 @@ cd worker && npm install && npm test
 
 Load the extension via `chrome://extensions` → Developer mode → Load unpacked → `extension/`.
 
+**The `--load-extension` command-line flag will not work.** Chrome ignores it entirely on current
+builds — verified on 150.0.7871.187, where the extension never appears in the profile's
+`Secure Preferences` and its pages return `ERR_BLOCKED_BY_CLIENT`. That error names the extension
+id, which makes it look like the extension loaded and was then blocked; it did not load at all.
+Loading unpacked through the UI is the only path.
+
+The extension id is pinned by the `key` in the manifest, so it is stable across machines and
+reloads: `happeofpndgdgdjfcgjagobkjdaanjin`. The relay's CORS allowlist depends on that.
+
 ## Credits
 
 The design was reviewed against primary Chromium/Chrome Web Store sources before implementation;
