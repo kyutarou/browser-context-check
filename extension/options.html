@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Browser Context Check — 設定</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body class="options">
+  <h1>Browser Context Check</h1>
+
+  <section class="notice" id="disclosure">
+    <h2>この拡張が送信するもの</h2>
+    <p>
+      Agent Mode を有効にすると、この拡張は<strong>あなたが見ているタブの情報を外部サーバーへ送信</strong>します。
+      有効にするまで、送信は一切行われません。
+    </p>
+    <dl>
+      <dt>送信先</dt><dd id="endpointLabel">—</dd>
+      <dt>送信する項目</dt><dd>ブラウザ種別・プロファイル名（あなたが付けた名前）・ウィンドウID・タブID・URL・フォーカス状態。タイトルは別スイッチ</dd>
+      <dt>送信するタイミング</dt><dd>タブの切替・更新・ウィンドウのフォーカス変化時、および1分ごと</dd>
+      <dt>保存期間</dt><dd>インストールごとに最新1件のみ。数分で失効します</dd>
+      <dt>停止方法</dt><dd>このページで Agent Mode をオフにするか、下の「解除」を押します</dd>
+    </dl>
+    <p class="warn">
+      URL のクエリやフラグメント、ページタイトルには機密情報が含まれ得ます。既定ではクエリとフラグメントを
+      削除して送信します。
+    </p>
+  </section>
+
+  <section>
+    <h2>ペアリング</h2>
+    <p class="muted">CLI 側で発行した一度きりのコードを入力してください。</p>
+    <label>プロファイル名（このプロファイルの呼び名）
+      <input type="text" id="profileAlias" placeholder="chrome-work / chrome-profile-2 / edge-main">
+    </label>
+    <label>ペアリングコード
+      <input type="text" id="pairingCode" placeholder="XXXX-XXXX-XXXX">
+    </label>
+    <button id="pair">ペアリング</button>
+    <button id="unpair" class="danger">解除</button>
+    <p id="pairStatus" class="status"></p>
+  </section>
+
+  <section>
+    <h2>Agent Mode</h2>
+    <label class="switch"><input type="checkbox" id="agentMode"> Agent Mode を有効にする（外部送信を開始）</label>
+    <label class="switch"><input type="checkbox" id="sendTitle"> ページタイトルも送信する</label>
+    <label class="switch"><input type="checkbox" id="includeIncognito"> シークレットウィンドウも対象にする</label>
+    <p id="permStatus" class="status"></p>
+  </section>
+
+  <script type="module" src="options.js"></script>
+</body>
+</html>

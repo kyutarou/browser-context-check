@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Browser Context Check",
+  "version": "0.1.0",
+  "description": "Lets a paired local AI agent identify which browser, profile, and tab to target. Sends nothing until you pair and opt in.",
+  "permissions": ["storage", "alarms"],
+  "optional_permissions": ["tabs"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
+}

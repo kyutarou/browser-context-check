@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dxj-browser-context-check-v0",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "observability": {
+    // Snapshot bodies must never reach the log pipeline (docs/DESIGN.md INV-6).
+    "enabled": true,
+    "logs": { "invocation_logs": false }
+  },
+  "routes": [
+    // The trailing * is required: a route without it does not match URLs carrying a query
+    // string, and the request silently falls through to the zone's Custom Domain.
+    { "pattern": "dashboard.dxj.jp/browser-check*", "zone_name": "dxj.jp" }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "REGISTRY", "class_name": "BrowserContextRegistry" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BrowserContextRegistry"] }],
+  "vars": {
+    "DEVICE_ID": "REPLACE_AT_DEPLOY",
+    "EXTENSION_ORIGIN": "REPLACE_AT_DEPLOY"
+  }
+}
