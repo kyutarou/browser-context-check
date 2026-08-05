@@ -9,6 +9,11 @@ export interface Env {
   EXTENSION_ORIGIN: string;
   /** Device this deployment serves. Single-tenant for now; see docs/DESIGN.md §9. */
   DEVICE_ID: string;
+  /** Public URL the extension posts to, handed to it inside the pairing bundle. */
+  INGEST_ENDPOINT: string;
+  /** Access service-token credentials carried across in the pairing bundle (secrets). */
+  ACCESS_CLIENT_ID: string;
+  ACCESS_CLIENT_SECRET: string;
 }
 
 const BASE = '/browser-check';
@@ -75,10 +80,26 @@ export default {
         return stub.fetch('https://do/?op=installations');
       }
 
-      // Issuing a pairing code is a privileged act, so it lives here rather than on the ingest
+      // Issuing a pairing bundle is a privileged act, so it lives here rather than on the ingest
       // prefix: only an Access-authenticated human can mint one.
+      //
+      // The bundle carries the Access service-token credentials because a fresh installation has
+      // no way to fetch them itself — the relay host is behind Access, which is the point. A
+      // human moves them across once, and from then on the extension authenticates as a machine.
       if (op === '/pairing-code' && request.method === 'POST') {
-        return stub.fetch('https://do/?op=issue-code');
+        const issued = await stub.fetch('https://do/?op=issue-code');
+        const { code, expiresInMs } = (await issued.json()) as { code: string; expiresInMs: number };
+        const bundle = btoa(
+          JSON.stringify({
+            code,
+            endpoint: env.INGEST_ENDPOINT,
+            accessClientId: env.ACCESS_CLIENT_ID,
+            accessClientSecret: env.ACCESS_CLIENT_SECRET,
+          }),
+        );
+        return new Response(JSON.stringify({ bundle, expiresInMs }), {
+          headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+        });
       }
 
       if (op === '/revoke' && request.method === 'POST') {

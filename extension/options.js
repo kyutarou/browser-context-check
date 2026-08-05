@@ -1,6 +1,24 @@
 import { getInstallationId } from './lib/ids.js';
+import { accessHeaders } from './lib/relay.js';
 
 const DEFAULT_ENDPOINT = 'https://dashboard.dxj.jp/browser-check/ingest/v1';
+
+/**
+ * The relay host is behind Cloudflare Access, so a brand new installation cannot reach it to ask
+ * for credentials — that would be circular. The console therefore emits a bundle that the human
+ * carries across: Access service-token credentials plus a single-use redemption code.
+ */
+function decodeBundle(raw) {
+  let json;
+  try {
+    json = JSON.parse(atob(raw.replace(/\s+/g, '')));
+  } catch {
+    return { ok: false, reason: 'バンドルを読み取れません。コンソールからコピーし直してください。' };
+  }
+  const missing = ['code', 'accessClientId', 'accessClientSecret'].filter((k) => !json[k]);
+  if (missing.length) return { ok: false, reason: `バンドルに ${missing.join(', ')} がありません。` };
+  return { ok: true, bundle: json };
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -41,18 +59,23 @@ async function refreshPermStatus() {
 
 $('pair').addEventListener('click', async () => {
   const alias = $('profileAlias').value.trim();
-  const code = $('pairingCode').value.trim();
+  const raw = $('pairingCode').value.trim();
   if (!alias) return setStatus($('pairStatus'), 'プロファイル名を入力してください。', 'err');
-  if (!code) return setStatus($('pairStatus'), 'ペアリングコードを入力してください。', 'err');
+  if (!raw) return setStatus($('pairStatus'), 'ペアリングバンドルを貼り付けてください。', 'err');
 
-  const endpoint = (await chrome.storage.local.get('endpoint')).endpoint || DEFAULT_ENDPOINT;
+  const decoded = decodeBundle(raw);
+  if (!decoded.ok) return setStatus($('pairStatus'), decoded.reason, 'err');
+  const { code, accessClientId, accessClientSecret, endpoint: bundleEndpoint } = decoded.bundle;
+
+  const endpoint = bundleEndpoint || (await chrome.storage.local.get('endpoint')).endpoint || DEFAULT_ENDPOINT;
   const installationId = await getInstallationId();
+  const access = { clientId: accessClientId, clientSecret: accessClientSecret };
 
   setStatus($('pairStatus'), 'ペアリング中…');
   try {
     const res = await fetch(endpoint + '/pair', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...accessHeaders(access) },
       body: JSON.stringify({ code, installationId, profileAlias: alias }),
     });
     if (!res.ok) {
@@ -60,7 +83,16 @@ $('pair').addEventListener('click', async () => {
       return setStatus($('pairStatus'), `ペアリング失敗: ${res.status} ${detail.slice(0, 120)}`, 'err');
     }
     const { deviceId, relaySecret } = await res.json();
-    await chrome.storage.local.set({ deviceId, relaySecret, profileAlias: alias, sequence: 0 });
+    // Only persist the Access credentials once they have actually authenticated a request.
+    await chrome.storage.local.set({
+      deviceId,
+      relaySecret,
+      profileAlias: alias,
+      endpoint,
+      accessClientId,
+      accessClientSecret,
+      sequence: 0,
+    });
     $('pairingCode').value = '';
     setStatus($('pairStatus'), `ペアリング完了（device: ${deviceId}）`, 'ok');
   } catch (err) {
@@ -69,7 +101,13 @@ $('pair').addEventListener('click', async () => {
 });
 
 $('unpair').addEventListener('click', async () => {
-  await chrome.storage.local.remove(['deviceId', 'relaySecret', 'sequence']);
+  await chrome.storage.local.remove([
+    'deviceId',
+    'relaySecret',
+    'sequence',
+    'accessClientId',
+    'accessClientSecret',
+  ]);
   await chrome.storage.local.set({ agentMode: false });
   $('agentMode').checked = false;
   setStatus($('pairStatus'), '解除しました。送信は停止しています。');

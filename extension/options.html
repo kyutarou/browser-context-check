@@ -29,12 +29,15 @@
 
   <section>
     <h2>ペアリング</h2>
-    <p class="muted">CLI 側で発行した一度きりのコードを入力してください。</p>
+    <p class="muted">
+      コンソール（<code>dashboard.dxj.jp/browser-check/</code>）で発行したペアリングバンドルを貼り付けてください。
+      1回限りで、10分で失効します。
+    </p>
     <label>プロファイル名（このプロファイルの呼び名）
       <input type="text" id="profileAlias" placeholder="chrome-work / chrome-profile-2 / edge-main">
     </label>
-    <label>ペアリングコード
-      <input type="text" id="pairingCode" placeholder="XXXX-XXXX-XXXX">
+    <label>ペアリングバンドル
+      <textarea id="pairingCode" rows="4" placeholder="コンソールでコピーした文字列をそのまま貼り付け"></textarea>
     </label>
     <button id="pair">ペアリング</button>
     <button id="unpair" class="danger">解除</button>

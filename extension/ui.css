@@ -79,6 +79,20 @@ dd { margin: 0; }
 label { display: block; margin-bottom: 10px; }
 label.switch { display: flex; align-items: center; gap: 8px; }
 
+textarea {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
+
 input[type="text"] {
   width: 100%;
   margin-top: 4px;

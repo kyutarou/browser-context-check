@@ -18,7 +18,9 @@
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BrowserContextRegistry"] }],
   "vars": {
-    "DEVICE_ID": "REPLACE_AT_DEPLOY",
-    "EXTENSION_ORIGIN": "REPLACE_AT_DEPLOY"
+    "DEVICE_ID": "dxj-main-pc",
+    "EXTENSION_ORIGIN": "chrome-extension://happeofpndgdgdjfcgjagobkjdaanjin",
+    "INGEST_ENDPOINT": "https://dashboard.dxj.jp/browser-check/ingest/v1"
   }
+  // ACCESS_CLIENT_ID / ACCESS_CLIENT_SECRET are set with `wrangler secret put`, never here.
 }

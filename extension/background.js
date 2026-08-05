@@ -8,6 +8,16 @@ import { getInstallationId, getBrowserSessionId } from './lib/ids.js';
 import { redactUrl } from './lib/redact.js';
 import { signedFetch } from './lib/relay.js';
 
+/** @returns {{clientId: string, clientSecret: string} | null} */
+async function getAccess() {
+  const { accessClientId, accessClientSecret } = await chrome.storage.local.get([
+    'accessClientId',
+    'accessClientSecret',
+  ]);
+  if (!accessClientId || !accessClientSecret) return null;
+  return { clientId: accessClientId, clientSecret: accessClientSecret };
+}
+
 const SETTINGS_DEFAULTS = {
   agentMode: false,
   sendTitle: false,
@@ -42,6 +52,8 @@ async function isArmed() {
   if (!settings.agentMode) return false;
   const creds = await getCredentials();
   if (!creds.relaySecret || !creds.deviceId || !creds.profileAlias) return false;
+  // Without the Access credentials the relay host is unreachable, so there is nothing to arm.
+  if (!(await getAccess())) return false;
   // tabs is optional; without it we cannot read url/title, so there is nothing worth sending.
   const granted = await chrome.permissions.contains({ permissions: ['tabs'] });
   return granted ? { settings, creds } : false;
@@ -105,6 +117,7 @@ async function push(snapshot, settings, creds) {
       installationId: snapshot.installationId,
       sequence,
       body: snapshot,
+      access: await getAccess(),
     });
   } catch {
     // The relay being unreachable is not an error worth surfacing: the CLI will simply see a

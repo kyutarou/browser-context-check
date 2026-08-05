@@ -25,7 +25,7 @@
 | INV-5 | 曖昧な候補が同時に存在するとき latest-wins で1件に畳まない。`AMBIGUOUS` を返す |
 | INV-6 | Worker のログ・Analytics・エラートレースに snapshot body を残さない |
 | INV-7 | 既存の公開拡張 `show-tab-id` には本機能を載せない（信頼境界の変更にあたるため） |
-| INV-8 | Access を迂回する経路は `ingest/` プレフィックスだけ。特権操作（コード発行・解除・読み取り）を ingest 側へ置かない |
+| INV-8 | Access を迂回する経路を作らない。`ingest/` は専用 Access アプリ＋Service Auth で認証する。特権操作（バンドル発行・解除・読み取り）を ingest 側へ置かない |
 | INV-9 | `relaySecret` は Durable Object の外へ出さない。認証済みコンソールにも返さない |
 
 ## 2. 識別子
@@ -106,7 +106,9 @@ MV3 service worker は listen できないため受動的 API サーバにはな
 ## 6. Access 境界と API（v0）
 
 `dashboard.dxj.jp` はホスト全体が Cloudflare Access（self_hosted アプリ）配下にある。
-拡張は Access セッションを持てないため、**ingest 経路だけを Bypass する**。
+拡張は人間の SSO セッションを持てないが、**Bypass は作らない**。
+代わりに ingest パスへ**専用の Access アプリ**を置き、**Service Auth（サービストークン）**で
+機械として認証する。Access は外れず、認証方式が変わるだけである。
 
 境界は**エンドポイントの列挙ではなくプレフィックスで**表現する。列挙はいずれ漏れ、
 漏れた側は fail-open になる。
@@ -115,7 +117,11 @@ MV3 service worker は listen できないため受動的 API サーバにはな
 |---|---|---|
 | `/browser-check/` | 人間（コンソール） | Access（SSO） |
 | `/browser-check/api/v1/` | 人間・CLI | Access（SSO / service token） |
-| `/browser-check/ingest/v1/` | 拡張のみ | **Access Bypass** + HMAC 署名 |
+| `/browser-check/ingest/v1/` | 拡張のみ | **Access（Service Auth）** + HMAC 署名 |
+
+ingest 用トークンは ingest パス専用の Access アプリにしか紐づかないため、拡張が侵害されても
+コンソールや読み取り API には到達できない。実測で確認済み（`api/v1/target` へ ingest
+トークンで到達すると 401）。
 
 | メソッド | パス | 呼び手 |
 |---|---|---|
@@ -126,8 +132,24 @@ MV3 service worker は listen できないため受動的 API サーバにはな
 | POST | `api/v1/pairing-code` | コンソール |
 | POST | `api/v1/revoke` | コンソール |
 
-**pairing コードの発行は `api/` 側に置く**（INV-8）。ingest 側に置くと匿名でコードを発行でき、
-ペアリング自体が意味を失う。
+**pairing バンドルの発行は `api/` 側に置く**（INV-8）。ingest 側に置くと発行そのものが
+機械資格情報だけで可能になり、ペアリングが意味を失う。
+
+### ペアリングバンドル
+
+新規インストール直後の拡張は Access 資格情報を持たないため、自力では relay に到達できない。
+これは循環であり、**初回だけ帯域外で運ぶ**しかない。コンソール（Access 配下）が次を base64 で
+1つの文字列にまとめ、人間が拡張の設定画面へ貼り付ける。
+
+```
+{ code, endpoint, accessClientId, accessClientSecret }
+```
+
+`code` は 1 回限り・10 分で失効し、引き換えると installation 固有の HMAC 秘密が返る。
+以後、拡張は「Access のサービストークン」と「installation 固有 HMAC」の二重で認証する。
+
+「拡張を入れるだけでゼロ設定」は成立しない。安全なゼロ設定は存在せず、初回一度の
+ペアリングは必須である。
 
 レスポンスの `status` は `TARGET` / `NO_TARGET` / `STALE` / `AMBIGUOUS` のいずれかを必ず明示する。
 

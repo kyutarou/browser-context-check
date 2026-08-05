@@ -25,7 +25,15 @@ async function importKey(secretHex) {
  * Signs method + path + body hash + timestamp + sequence. The server keeps a replay window and
  * rejects reused sequence numbers, so a captured request cannot be replayed.
  */
-export async function signedFetch({ endpoint, path, secretHex, installationId, sequence, body }) {
+export async function signedFetch({
+  endpoint,
+  path,
+  secretHex,
+  installationId,
+  sequence,
+  body,
+  access,
+}) {
   const payload = JSON.stringify(body);
   const timestamp = Date.now().toString();
   const bodyHash = await sha256Hex(payload);
@@ -42,7 +50,21 @@ export async function signedFetch({ endpoint, path, secretHex, installationId, s
       'x-bcc-timestamp': timestamp,
       'x-bcc-sequence': String(sequence),
       'x-bcc-signature': signature,
+      ...accessHeaders(access),
     },
     body: payload,
   });
+}
+
+/**
+ * Cloudflare Access service-token credentials. The relay host stays fully behind Access; this is
+ * a machine identity rather than a hole punched through it, so an unauthenticated request never
+ * reaches the Worker at all.
+ */
+export function accessHeaders(access) {
+  if (!access || !access.clientId || !access.clientSecret) return {};
+  return {
+    'CF-Access-Client-Id': access.clientId,
+    'CF-Access-Client-Secret': access.clientSecret,
+  };
 }

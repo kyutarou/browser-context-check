@@ -78,9 +78,9 @@ button.ghost:hover { color:var(--fg); }
 button.danger { background:none; color:var(--danger); border-color:currentColor; }
 .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
 .code {
-  font-family:var(--font-mono); font-size:26px; letter-spacing:.08em; padding:16px 20px;
+  font-family:var(--font-mono); font-size:12px; line-height:1.6; padding:16px 20px;
   background:var(--surface-raised); border:1px solid var(--border); border-radius:8px;
-  display:inline-block; margin:16px 0 8px;
+  display:block; margin:16px 0 8px; overflow-wrap:anywhere; max-height:180px; overflow-y:auto;
 }
 .muted { color:var(--fg-subtle); font-size:14px; }
 .empty { color:var(--fg-subtle); font-size:14px; padding:24px 0; }
@@ -122,13 +122,19 @@ pre {
       </tr></thead>
       <tbody id="rows"></tbody>
     </table></div>
-    <p id="empty" class="empty" hidden>まだペアリングされていません。下でコードを発行してください。</p>
+    <p id="empty" class="empty" hidden>まだペアリングされていません。下でバンドルを発行してください。</p>
   </section>
 
   <section>
     <h2>新しいプロファイルを追加</h2>
-    <p class="muted">コードを発行し、対象ブラウザの拡張の設定画面に入力します。1回限り・10分で失効します。</p>
-    <div class="row"><button class="act" id="issue" type="button">ペアリングコードを発行</button></div>
+    <p class="muted">
+      バンドルを発行し、対象ブラウザの拡張の設定画面に貼り付けます。1回限り・10分で失効します。
+      <strong>資格情報を含むため、他人に渡さないでください。</strong>
+    </p>
+    <div class="row">
+      <button class="act" id="issue" type="button">ペアリングバンドルを発行</button>
+      <button class="act ghost" id="copy" type="button" hidden>コピー</button>
+    </div>
     <div id="codeBox" hidden><div class="code" id="code">—</div><p class="muted" id="codeNote"></p></div>
   </section>
 </div>
@@ -213,10 +219,21 @@ $('resolve').addEventListener('click', async () => {
 
 $('issue').addEventListener('click', async () => {
   const res = await fetch(API + '/pairing-code', { method: 'POST' });
-  const { code, expiresInMs } = await res.json();
-  $('code').textContent = code;
+  const { bundle, expiresInMs } = await res.json();
+  $('code').textContent = bundle;
   $('codeNote').textContent = Math.round(expiresInMs / 60000) + '分で失効します。';
   $('codeBox').hidden = false;
+  $('copy').hidden = false;
+});
+
+$('copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('code').textContent);
+    $('copy').textContent = 'コピーしました';
+    setTimeout(() => { $('copy').textContent = 'コピー'; }, 1500);
+  } catch (e) {
+    $('codeNote').textContent = 'コピーできませんでした。手動で選択してください。';
+  }
 });
 
 load();

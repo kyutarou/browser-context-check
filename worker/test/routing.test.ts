@@ -27,6 +27,9 @@ function makeEnv(): { env: Env; calls: Call[] } {
     REGISTRY: { idFromName: () => 'id', get: () => stub },
     EXTENSION_ORIGIN: 'chrome-extension://testid',
     DEVICE_ID: 'device-1',
+    INGEST_ENDPOINT: 'https://dashboard.dxj.jp/browser-check/ingest/v1',
+    ACCESS_CLIENT_ID: 'client-id-value',
+    ACCESS_CLIENT_SECRET: 'client-secret-value',
   } as unknown as Env;
   return { env, calls };
 }
@@ -114,6 +117,34 @@ describe('api prefix (behind Access)', () => {
       expect(res.status).toBe(200);
       expect(opOf(calls)).toBe(expected);
     }
+  });
+
+  it('mints a pairing bundle carrying the Access credentials', async () => {
+    const { env, calls } = makeEnv();
+    // The DO returns {ok:true} from the stub, so stand in a realistic issue-code reply.
+    (env.REGISTRY as unknown as { get: () => { fetch: (u: string) => Promise<Response> } }).get =
+      () => ({
+        fetch: async (u: string) => {
+          calls.push({ url: typeof u === 'string' ? u : (u as Request).url, method: 'GET' });
+          return new Response(JSON.stringify({ code: 'AAAA-BBBB-CCCC', expiresInMs: 600000 }), {
+            headers: { 'content-type': 'application/json' },
+          });
+        },
+      });
+
+    const res = await worker.fetch(
+      new Request(`${ORIGIN}/browser-check/api/v1/pairing-code`, { method: 'POST' }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    const { bundle } = (await res.json()) as { bundle: string };
+    const decoded = JSON.parse(atob(bundle));
+    expect(decoded).toMatchObject({
+      code: 'AAAA-BBBB-CCCC',
+      accessClientId: 'client-id-value',
+      accessClientSecret: 'client-secret-value',
+      endpoint: 'https://dashboard.dxj.jp/browser-check/ingest/v1',
+    });
   });
 
   it('does not accept snapshot writes on the authenticated prefix', async () => {

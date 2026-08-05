@@ -3,8 +3,14 @@
   "name": "Browser Context Check",
   "version": "0.1.0",
   "description": "Lets a paired local AI agent identify which browser, profile, and tab to target. Sends nothing until you pair and opt in.",
-  "permissions": ["storage", "alarms"],
-  "optional_permissions": ["tabs"],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4BOiYnD/nxvSFPgL38cWpPQWPQ9SyJqE5zuCxxTFyyiLGdt2cyBCkK/0izAUqG2+r2Fm1G93vAv+4VKSsFHs0CCcwxyZMNckTgV19mOG/E6VNG7ei3YAWVxY+vNkmmqb0+7RNkDTO3ZrarQ4Leuvikd0ccbpUwkucspdyvfjAJFiXuMJMLfZ22uptRE+PT5VXbRiKx7isLh/WQrPJN44isha1OXfoSxdWxO9B8qof++oS68rVAGIGTP8lNdDONYKS4cqtXpjjvQKEQ/h0Zly/JL/lb3TSmjr+lPV/71RW+WbOuvtqfBKJWzmUbHJydFLNXaejpQb8Q5s9Vt7cM5TIQIDAQAB",
+  "permissions": [
+    "storage",
+    "alarms"
+  ],
+  "optional_permissions": [
+    "tabs"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"
