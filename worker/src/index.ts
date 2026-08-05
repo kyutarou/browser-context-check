@@ -71,13 +71,24 @@ export default {
     if (pathname.startsWith(API)) {
       const op = pathname.slice(API.length);
 
+      // Access authenticates the caller but does not stop a cross-site request from riding the
+      // session cookie. Mutating endpoints therefore demand a header that a simple cross-origin
+      // POST cannot set: adding it forces a preflight, and this prefix publishes no CORS policy,
+      // so the preflight fails. See docs/DESIGN.md INV-10.
+      if (request.method !== 'GET' && request.headers.get('x-bcc-console') !== '1') {
+        return new Response(JSON.stringify({ error: 'missing_console_header' }), {
+          status: 403,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+
       if (op === '/target' && request.method === 'GET') {
         const selector = url.searchParams.get('selector') ?? 'lastBrowser';
-        return stub.fetch(`https://do/?op=target&selector=${encodeURIComponent(selector)}`);
+        return noStore(await stub.fetch(`https://do/?op=target&selector=${encodeURIComponent(selector)}`));
       }
 
       if (op === '/installations' && request.method === 'GET') {
-        return stub.fetch('https://do/?op=installations');
+        return noStore(await stub.fetch('https://do/?op=installations'));
       }
 
       // Issuing a pairing bundle is a privileged act, so it lives here rather than on the ingest
@@ -132,6 +143,16 @@ export default {
     return new Response('Not found', { status: 404 });
   },
 };
+
+/**
+ * A cached target answer is a wrong target answer: it would point an agent at a tab the user has
+ * already left. These responses must never be stored by an edge or a browser.
+ */
+function noStore(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.set('cache-control', 'no-store');
+  return new Response(response.body, { status: response.status, headers });
+}
 
 function corsHeaders(env: Env): Record<string, string> {
   return {

@@ -27,6 +27,8 @@
 | INV-7 | 既存の公開拡張 `show-tab-id` には本機能を載せない（信頼境界の変更にあたるため） |
 | INV-8 | Access を迂回する経路を作らない。`ingest/` は専用 Access アプリ＋Service Auth で認証する。特権操作（バンドル発行・解除・読み取り）を ingest 側へ置かない |
 | INV-9 | `relaySecret` は Durable Object の外へ出さない。認証済みコンソールにも返さない |
+| INV-10 | `api/` の非 GET は `x-bcc-console: 1` を要求する。Access はセッション cookie に便乗した他サイト発のリクエストを区別しないため |
+| INV-11 | `target` / `installations` の応答は `cache-control: no-store`。キャッシュされた target は誤った target である |
 
 ## 2. 識別子
 
@@ -150,6 +152,16 @@ ingest 用トークンは ingest パス専用の Access アプリにしか紐づ
 
 「拡張を入れるだけでゼロ設定」は成立しない。安全なゼロ設定は存在せず、初回一度の
 ペアリングは必須である。
+
+### CSRF
+
+Access は「誰か」は認証するが、「本人が意図した操作か」は区別しない。認証済みブラウザが
+悪意あるページを開いていると、`text/plain` の単純リクエストはプリフライトを回避して
+Access cookie ごと届く。
+
+そこで `api/` の非 GET には `x-bcc-console: 1` を要求する。このヘッダを付けた時点で
+プリフライトが強制され、`api/` プレフィックスは CORS ポリシーを公開していないため
+他オリジンからは成立しない。実測で確認済み（ヘッダ無し 403 / コンソール正規要求 200）。
 
 レスポンスの `status` は `TARGET` / `NO_TARGET` / `STALE` / `AMBIGUOUS` のいずれかを必ず明示する。
 

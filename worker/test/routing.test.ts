@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import worker, { type Env } from '../src/index';
 
 /**
- * The Access boundary is expressed as path prefixes: everything under /ingest/ is reachable
- * without SSO, everything else is not. These tests pin that boundary, because a privileged
- * operation leaking onto the ingest prefix would be reachable by anyone on the internet.
+ * The Access boundary is expressed as path prefixes. Nothing bypasses Access: /ingest/ has its
+ * own Access application authenticated by a service token, while everything else requires human
+ * SSO. These tests pin the routing side of that boundary, because a privileged operation leaking
+ * onto the ingest prefix would be reachable by anything holding the extension's machine
+ * credential.
  */
 
 interface Call {
@@ -41,7 +43,7 @@ function opOf(calls: Call[]): string | null {
   return new URL(calls[calls.length - 1].url).searchParams.get('op');
 }
 
-describe('ingest prefix (Access bypassed)', () => {
+describe('ingest prefix (Access via service token)', () => {
   it('accepts signed snapshot writes', async () => {
     const { env, calls } = makeEnv();
     const res = await worker.fetch(
@@ -98,6 +100,8 @@ describe('ingest prefix (Access bypassed)', () => {
   });
 });
 
+const CONSOLE = { 'x-bcc-console': '1' };
+
 describe('api prefix (behind Access)', () => {
   it('routes privileged operations through to the registry', async () => {
     for (const [path, method, expected] of [
@@ -110,12 +114,45 @@ describe('api prefix (behind Access)', () => {
       const res = await worker.fetch(
         new Request(`${ORIGIN}/browser-check/api/v1${path}`, {
           method,
+          headers: CONSOLE,
           body: method === 'POST' ? '{}' : undefined,
         }),
         env,
       );
       expect(res.status).toBe(200);
       expect(opOf(calls)).toBe(expected);
+    }
+  });
+
+  // Access authenticates the user but does not distinguish a request the user meant to make from
+  // one a hostile page made on their behalf with their session cookie.
+  it.each([
+    ['/revoke'],
+    ['/pairing-code'],
+  ])('refuses a mutating %s without the console header', async (path) => {
+    const { env, calls } = makeEnv();
+    const res = await worker.fetch(
+      new Request(`${ORIGIN}/browser-check/api/v1${path}`, {
+        method: 'POST',
+        // text/plain keeps it a "simple" request, which is exactly how a cross-site form would
+        // try to slip past CORS preflight.
+        headers: { 'content-type': 'text/plain' },
+        body: '{"installationId":"inst-victim"}',
+      }),
+      env,
+    );
+    expect(res.status).toBe(403);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('does not let reads be cached', async () => {
+    const { env } = makeEnv();
+    for (const path of ['/target', '/installations']) {
+      const res = await worker.fetch(
+        new Request(`${ORIGIN}/browser-check/api/v1${path}`, { headers: CONSOLE }),
+        env,
+      );
+      expect(res.headers.get('cache-control')).toBe('no-store');
     }
   });
 
@@ -133,7 +170,7 @@ describe('api prefix (behind Access)', () => {
       });
 
     const res = await worker.fetch(
-      new Request(`${ORIGIN}/browser-check/api/v1/pairing-code`, { method: 'POST' }),
+      new Request(`${ORIGIN}/browser-check/api/v1/pairing-code`, { method: 'POST', headers: { 'x-bcc-console': '1' } }),
       env,
     );
     expect(res.status).toBe(200);
@@ -150,7 +187,11 @@ describe('api prefix (behind Access)', () => {
   it('does not accept snapshot writes on the authenticated prefix', async () => {
     const { env, calls } = makeEnv();
     const res = await worker.fetch(
-      new Request(`${ORIGIN}/browser-check/api/v1/snapshot`, { method: 'POST', body: '{}' }),
+      new Request(`${ORIGIN}/browser-check/api/v1/snapshot`, {
+        method: 'POST',
+        headers: CONSOLE,
+        body: '{}',
+      }),
       env,
     );
     expect(res.status).toBe(404);

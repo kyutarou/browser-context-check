@@ -142,6 +142,9 @@ pre {
 <script>
 const $ = (id) => document.getElementById(id);
 const API = './api/v1';
+// Proves the request came from this page rather than from a cross-site form riding the Access
+// cookie. Any request carrying it is forced through a preflight the api prefix will not answer.
+const CONSOLE_HEADERS = { 'x-bcc-console': '1' };
 
 $('theme').addEventListener('click', () => {
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -201,7 +204,7 @@ async function load() {
       if (!confirm(item.profileAlias + ' のペアリングを解除しますか？')) return;
       await fetch(API + '/revoke', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...CONSOLE_HEADERS },
         body: JSON.stringify({ installationId: item.installationId }),
       });
       load();
@@ -218,7 +221,7 @@ $('resolve').addEventListener('click', async () => {
 });
 
 $('issue').addEventListener('click', async () => {
-  const res = await fetch(API + '/pairing-code', { method: 'POST' });
+  const res = await fetch(API + '/pairing-code', { method: 'POST', headers: CONSOLE_HEADERS });
   const { bundle, expiresInMs } = await res.json();
   $('code').textContent = bundle;
   $('codeNote').textContent = Math.round(expiresInMs / 60000) + '分で失効します。';
