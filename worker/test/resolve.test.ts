@@ -20,6 +20,7 @@ function snap(over: Partial<Snapshot> = {}): Snapshot {
     url: 'https://example.com/',
     host: 'example.com',
     title: null,
+    lastInteractionAt: new Date(NOW - 1000).toISOString(),
     observedAt: new Date(NOW - 1000).toISOString(),
     eventId: 'evt-1',
     receivedAt: new Date(NOW - 900).toISOString(),
@@ -48,7 +49,7 @@ describe('resolve', () => {
   });
 
   it('returns STALE, not TARGET, once every snapshot is past its TTL', () => {
-    const old = snap({ observedAt: new Date(NOW - TTL - 1).toISOString() });
+    const old = snap({ receivedAt: new Date(NOW - TTL - 1).toISOString() });
     const result = resolve([old], { kind: 'lastBrowser' }, NOW, TTL);
     expect(result.status).toBe('STALE');
     if (result.status !== 'STALE') return;
@@ -56,7 +57,7 @@ describe('resolve', () => {
   });
 
   it('treats future timestamps as unusable rather than freshest', () => {
-    const skewed = snap({ observedAt: new Date(NOW + 60_000).toISOString() });
+    const skewed = snap({ receivedAt: new Date(NOW + 60_000).toISOString() });
     // A clock-skewed client must not be able to pin itself as permanently newest.
     expect(resolve([skewed], { kind: 'lastBrowser' }, NOW, TTL)).toEqual({
       status: 'NO_TARGET',
@@ -70,7 +71,7 @@ describe('resolve', () => {
       installationId: 'inst-b',
       profileAlias: 'edge-main',
       tabId: 200,
-      observedAt: new Date(NOW - 1000 - AMBIGUITY_WINDOW_MS + 10).toISOString(),
+      lastInteractionAt: new Date(NOW - 1000 - AMBIGUITY_WINDOW_MS + 10).toISOString(),
     });
     const result = resolve([a, b], { kind: 'lastBrowser' }, NOW, TTL);
     expect(result.status).toBe('AMBIGUOUS');
@@ -84,7 +85,7 @@ describe('resolve', () => {
       installationId: 'inst-b',
       profileAlias: 'edge-main',
       tabId: 200,
-      observedAt: new Date(NOW - 100).toISOString(),
+      lastInteractionAt: new Date(NOW - 100).toISOString(),
     });
     const result = resolve([older, newer], { kind: 'lastBrowser' }, NOW, TTL);
     expect(result.status).toBe('TARGET');
@@ -118,6 +119,46 @@ describe('resolve', () => {
     });
   });
 
+  // The whole point of lastBrowser. A keepalive from an untouched browser must not outrank the
+  // browser the user was actually looking at before they switched to a terminal.
+  it('does not let a heartbeat from an idle browser win over the one last used', () => {
+    const used = snap({
+      installationId: 'inst-a',
+      profileAlias: 'chrome-work',
+      lastInteractionAt: new Date(NOW - 20_000).toISOString(),
+      receivedAt: new Date(NOW - 20_000).toISOString(),
+    });
+    const idleButChatty = snap({
+      installationId: 'inst-b',
+      profileAlias: 'edge-main',
+      tabId: 200,
+      // Sent seconds ago by the 1-minute alarm, but nobody has touched it in an hour.
+      lastInteractionAt: new Date(NOW - 3_600_000).toISOString(),
+      receivedAt: new Date(NOW - 2_000).toISOString(),
+    });
+    const result = resolve([used, idleButChatty], { kind: 'lastBrowser' }, NOW, TTL);
+    expect(result.status).toBe('TARGET');
+    if (result.status !== 'TARGET') return;
+    expect(result.target.profileAlias).toBe('chrome-work');
+  });
+
+  it('measures freshness on the server clock, not the reported one', () => {
+    // A client claiming a recent observedAt cannot keep a long-dead snapshot alive.
+    const lying = snap({
+      lastInteractionAt: new Date(NOW - 10).toISOString(),
+      observedAt: new Date(NOW - 10).toISOString(),
+      receivedAt: new Date(NOW - TTL - 5_000).toISOString(),
+    });
+    expect(resolve([lying], { kind: 'lastBrowser' }, NOW, TTL).status).toBe('STALE');
+  });
+
+  it('refuses an unrecognised selector instead of quietly answering a different question', () => {
+    expect(resolve([snap()], parseSelector('lastBrowsr'), NOW, TTL)).toEqual({
+      status: 'NO_TARGET',
+      reason: 'unknown_selector',
+    });
+  });
+
   it('distinguishes identical tab ids coming from different browser sessions', () => {
     // tabId 100 exists in both; only the composite key tells them apart.
     const a = snap({ installationId: 'inst-a', browserSessionId: 'sess-a' });
@@ -127,9 +168,14 @@ describe('resolve', () => {
 });
 
 describe('parseSelector', () => {
-  it('defaults to lastBrowser for absent or unrecognised values', () => {
+  it('defaults to lastBrowser only when nothing was asked for', () => {
     expect(parseSelector(null)).toEqual({ kind: 'lastBrowser' });
-    expect(parseSelector('nonsense')).toEqual({ kind: 'lastBrowser' });
+    expect(parseSelector('lastBrowser')).toEqual({ kind: 'lastBrowser' });
+  });
+
+  it('marks a misspelled selector unknown rather than silently defaulting', () => {
+    // Defaulting here would hand a typo'd CLI call a different profile and call it success.
+    expect(parseSelector('nonsense')).toEqual({ kind: 'unknown', raw: 'nonsense' });
   });
 
   it('parses the supported selectors', () => {

@@ -31,6 +31,26 @@ const SETTINGS_DEFAULTS = {
 // tabs.onActivated fires before the new tab's url/title have settled, so coalesce briefly.
 const DEBOUNCE_MS = 250;
 let pending = null;
+let pendingIsInteraction = false;
+
+const INTERACTION_KEY = 'lastInteractionAt';
+
+/**
+ * The moment the user last did something in THIS browser. The heartbeat must never move it:
+ * if it did, an untouched browser would keep claiming to be the one most recently looked at,
+ * and `lastBrowser` would resolve to whichever profile pinged last rather than the one the user
+ * actually left.
+ *
+ * Kept in storage.session so it dies with the browser session, like browserSessionId.
+ */
+async function markInteraction() {
+  await chrome.storage.session.set({ [INTERACTION_KEY]: new Date().toISOString() });
+}
+
+async function getLastInteractionAt() {
+  const stored = await chrome.storage.session.get(INTERACTION_KEY);
+  return stored[INTERACTION_KEY] || null;
+}
 
 async function getSettings() {
   const stored = await chrome.storage.local.get(Object.keys(SETTINGS_DEFAULTS));
@@ -72,12 +92,14 @@ async function currentFocusState() {
 }
 
 async function buildSnapshot(tab, settings, creds) {
-  const [installationId, browserSessionId, browser, focusState] = await Promise.all([
-    getInstallationId(),
-    getBrowserSessionId(),
-    detectBrowser(),
-    currentFocusState(),
-  ]);
+  const [installationId, browserSessionId, browser, focusState, lastInteractionAt] =
+    await Promise.all([
+      getInstallationId(),
+      getBrowserSessionId(),
+      detectBrowser(),
+      currentFocusState(),
+      getLastInteractionAt(),
+    ]);
 
   if (tab.incognito && !settings.includeIncognito) return null;
 
@@ -101,16 +123,23 @@ async function buildSnapshot(tab, settings, creds) {
     url: redacted.url,
     host: redacted.host,
     title: settings.sendTitle ? tab.title || null : null,
+    // Falling back to now on a session with no recorded interaction yet would let a freshly
+    // started background browser outrank the one the user is actually using.
+    lastInteractionAt: lastInteractionAt || observedAt,
     observedAt,
     eventId: crypto.randomUUID(),
   };
 }
 
 async function push(snapshot, settings, creds) {
+  // Advanced before sending, and left advanced on failure: reusing a sequence number would be
+  // rejected as a replay anyway, and gaps are harmless because the relay only requires increase.
   const sequence = creds.sequence + 1;
   await chrome.storage.local.set({ sequence });
+
+  let status;
   try {
-    await signedFetch({
+    const res = await signedFetch({
       endpoint: settings.endpoint,
       path: '/snapshot',
       secretHex: creds.relaySecret,
@@ -119,17 +148,29 @@ async function push(snapshot, settings, creds) {
       body: snapshot,
       access: await getAccess(),
     });
-  } catch {
-    // The relay being unreachable is not an error worth surfacing: the CLI will simply see a
-    // STALE or NO_TARGET response, which is the correct fail-closed outcome.
+    // fetch resolves for 403s and 500s alike. Without this check a revoked pairing, an expired
+    // Access token or a rejected signature would look exactly like success, and the UI would go
+    // on claiming Agent Mode was working while the relay heard nothing.
+    status = res.ok
+      ? { ok: true, status: res.status, at: new Date().toISOString() }
+      : { ok: false, status: res.status, detail: (await res.text()).slice(0, 120), at: new Date().toISOString() };
+  } catch (err) {
+    status = { ok: false, status: 0, detail: String(err).slice(0, 120), at: new Date().toISOString() };
   }
+  await chrome.storage.local.set({ lastPushStatus: status });
 }
 
-function schedule() {
+function schedule({ interaction = false } = {}) {
+  if (interaction) pendingIsInteraction = true;
   if (pending) clearTimeout(pending);
   pending = setTimeout(() => {
     pending = null;
-    void report();
+    const wasInteraction = pendingIsInteraction;
+    pendingIsInteraction = false;
+    void (async () => {
+      if (wasInteraction) await markInteraction();
+      await report();
+    })();
   }, DEBOUNCE_MS);
 }
 
@@ -151,17 +192,27 @@ async function report() {
   await push(snapshot, settings, creds);
 }
 
-chrome.tabs.onActivated.addListener(schedule);
+// Events the user causes: these move lastInteractionAt.
+chrome.tabs.onActivated.addListener(() => schedule({ interaction: true }));
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
-  if (changeInfo.status === 'complete' || changeInfo.url || changeInfo.title) schedule();
+  if (changeInfo.status === 'complete' || changeInfo.url || changeInfo.title) {
+    schedule({ interaction: true });
+  }
 });
-chrome.tabs.onRemoved.addListener(schedule);
-chrome.windows.onFocusChanged.addListener(schedule);
-chrome.windows.onRemoved.addListener(schedule);
-chrome.runtime.onStartup.addListener(schedule);
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  // Losing focus is not an interaction — it is what happens when the user leaves for a terminal,
+  // which is exactly the moment lastInteractionAt must stay put.
+  schedule({ interaction: windowId !== chrome.windows.WINDOW_ID_NONE });
+});
+
+// State changes worth reporting, but not evidence that the user is here.
+chrome.tabs.onRemoved.addListener(() => schedule());
+chrome.windows.onRemoved.addListener(() => schedule());
+chrome.runtime.onStartup.addListener(() => schedule());
 
 // A service worker is evicted after ~30s idle, so the event listeners above are not enough to
-// keep the relay's view fresh while the user reads a page. A slow alarm refreshes it.
+// keep the relay's view fresh while the user reads a page. A slow alarm refreshes it — as a
+// keepalive only; it must not make an idle browser look recently used.
 chrome.alarms.create('heartbeat', { periodInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'heartbeat') schedule();

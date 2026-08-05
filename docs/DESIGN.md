@@ -29,6 +29,10 @@
 | INV-9 | `relaySecret` は Durable Object の外へ出さない。認証済みコンソールにも返さない |
 | INV-10 | `api/` の非 GET は `x-bcc-console: 1` を要求する。Access はセッション cookie に便乗した他サイト発のリクエストを区別しないため |
 | INV-11 | `target` / `installations` の応答は `cache-control: no-store`。キャッシュされた target は誤った target である |
+| INV-12 | 順位付けは `lastInteractionAt`（ユーザー操作）で行う。heartbeat はこれを動かさない。送信時刻で順位を付けると「最後に見たブラウザ」が「最後に ping したブラウザ」に化ける |
+| INV-13 | 鮮度判定はサーバ時刻 `receivedAt` で行う。クライアント時刻は表示用。取り込み時に `observedAt` / `lastInteractionAt` を `receivedAt` で上限クランプする |
+| INV-14 | snapshot の読み取り→検証→書き込みは `blockConcurrencyWhile` 内で再検証する。検証中の `await` で他リクエストが割り込み、revoke の取り消しや sequence 巻き戻りが起きる |
+| INV-15 | 未知の selector は `lastBrowser` へ黙って落とさず `unknown_selector` を返す。タイプミスに別プロファイルを返すのは成功に見える失敗である |
 
 ## 2. 識別子
 
@@ -83,6 +87,12 @@ CLI を使うためにターミナルへフォーカスを移すと全ブラウ�
 | `lastBrowser` | ユーザーがターミナルへ移る直前に最後に見ていたブラウザタブ | **通常の CLI 利用（既定）** |
 | `foreground` | いま OS フォーカスを持つブラウザタブ | 完全自律処理 |
 | `alias:<name>` | `profileAlias` 指定 | 明示指定 |
+
+`lastBrowser` は `lastInteractionAt` で順位付ける（INV-12）。service worker は約30秒で停止するため
+1分ごとの heartbeat で鮮度を保つが、**heartbeat は「使われた」ことの証拠ではない**。
+送信時刻で順位を付けると、放置された Edge が heartbeat しただけで、直前まで見ていた Chrome を
+追い越す。`lastInteractionAt` を動かすのは `tabs.onActivated` / `tabs.onUpdated` /
+フォーカス**獲得**のみで、フォーカス喪失（＝ターミナルへ移った瞬間）では動かさない。
 
 Chrome は全ウィンドウがフォーカスを失うと `windows.onFocusChanged` に `WINDOW_ID_NONE` を返す。
 ただし複数ブラウザ／プロファイル間のイベントは単一トランザクションではないため、
@@ -200,11 +210,18 @@ Worker が `Access-Control-Allow-Origin: chrome-extension://<id>` を返せば h
 ## 8. データ最小化（既定値）
 
 - URL の query と fragment を削除
+- **URL 埋め込みの認証情報（`user:pass@`）を除去**する。`toString()` でも query 除去でも残るため明示的に消す
 - `file://` / `chrome://` / `edge://` / `brave://` / 他拡張ページは送信しない
 - full URL が必要なサイトだけ allowlist
 - title は独立スイッチ
-- relay は installation ごと最新1件のみ、TTL は数十秒〜数分
+- relay は installation × browser session ごと最新1件のみ、TTL は数十秒〜数分
 - Worker のログに body を残さない
+
+### 残存リスク（設計上の既知の穴）
+
+**パスに埋め込まれた一回限りトークン**（`/reset/<token>` 等）は汎用的に検出できず、
+既定設定でも送信される。query/fragment と違い、パスは URL の意味そのものなので
+機械的に削れない。**機微なパストークンを扱うサイトでは Agent Mode を切ること。**
 
 ## 9. 保留（v0 では実装しない）
 
@@ -213,3 +230,4 @@ Worker が `Access-Control-Allow-Origin: chrome-extension://<id>` を返せば h
 | target lease | 操作を行わないビーコン設計では保護対象が無い。`revision` を返して呼び手が再照合する |
 | URL/title のエンドツーエンド暗号化 | v0 は TTL と最小化で担保。鍵配送の設計が別途必要 |
 | 双方向コマンド経路 | 非目的（§0）。実装すると攻撃面が大きく変わる |
+| Durable Object 実体のテスト | 現在の router テストは DO をスタブに差し替えるため、DO が全拒否する実装でも緑になる。E2E で補っているが、DO 単体の自動テストは未整備 |
