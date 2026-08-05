@@ -23,8 +23,8 @@ const SETTINGS_DEFAULTS = {
   sendTitle: false,
   includeIncognito: false,
   fullUrlAllowlist: [],
-  // The ingest prefix is the only part of the host that bypasses Cloudflare Access; the console
-  // and read APIs sit behind SSO and are not reachable from here.
+  // The ingest prefix has its own Access application authenticated by a service token. Nothing
+  // bypasses Access; the console and read APIs sit behind SSO and are unreachable from here.
   endpoint: 'https://dashboard.dxj.jp/browser-check/ingest/v1',
 };
 
