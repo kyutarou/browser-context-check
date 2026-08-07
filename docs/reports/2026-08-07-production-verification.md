@@ -72,8 +72,34 @@ service worker の起床ごとに再実行されるため、周期内にイベ�
 結果を読む行為がタブをアクティブ化し、`tabs.onActivated` を発生させていたこと（最終 snapshot の
 遅れが常に 1 秒だったのが指標）。ユーザー操作を疑う前に観測系を疑うべき事例。
 
+## EV-6 — Durable Object と AMBIGUOUS の検証（2026-08-07 後半）
+
+router テストが DO をスタブに差し替えていた穴を塞いだ。in-memory の `DurableObjectState`
+（`blockConcurrencyWhile` を直列化として模す）で実クラスを動かし、実署名・実ストレージで 29 件。
+`AMBIGUOUS` は DO 経由と HTTP 経由の両方で実発生させた。
+
+変異検査を 4 パターン実施し、当初 1 件が**素通り**した。
+
+| 変異 | 初回 | 修正後 |
+|---|---|---|
+| snapshot キーを installation のみに縮退 | 5 件検知 | — |
+| 欠損 `lastInteractionAt` を受信時刻で補完 | 1 件検知 | — |
+| installationId を body から採用 | 2 件検知 | — |
+| **並行性の再チェックを削除** | **0 件（素通り）** | **2 件検知** |
+
+素通りの原因はテスト側にあった。署名計算を `await` してからリクエストを投げていたため、revoke が
+検証中ではなく**検証前**に着地し、早期の `unknown_installation` が応答していた。競合を一度も
+通っていない。署名を先に済ませてからリクエストを発火する形に直し、エラー種別
+（`revoked_during_verification`）まで検査して、正しい経路を通ったことを固定した。
+
+E2E（`worker/scripts/e2e-local.mjs`、19 件）も HTTP 経路で AMBIGUOUS を確認。
+「同時刻の 2 プロファイルは AMBIGUOUS」「明示 alias は曖昧でも解決する」
+「窓を超えれば解消する」の 3 点。最後の 1 件は当初失敗したが、原因はテストの想定であり
+製品ではない — ローカルの往復が速く、「明確に新しくした」つもりの間隔が曖昧判定の窓
+（750ms）に収まっていた。AMBIGUOUS のままが正しい。待機を明示した。
+
 ## 未検証
 
-- 複数ブラウザ間（Chrome / Edge）での `lastBrowser` 切替。ペアリング済みプロファイルが 1 件のみ
-- `AMBIGUOUS` の実発生
-- Durable Object 単体の自動テスト（router テストは DO をスタブに差し替えている）
+- 複数ブラウザ間（Chrome / Edge）での `lastBrowser` 切替。ペアリング済みプロファイルが 1 件のみ。
+  2026-08-07 にユーザー判断で対象外とした
+- 本番環境での `AMBIGUOUS` 実発生（ローカルと DO では確認済み。本番は 1 プロファイルのため未発生）

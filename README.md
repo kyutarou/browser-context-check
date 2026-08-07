@@ -103,6 +103,24 @@ both a service token and a signature.
 
 There is no safe zero-setup path. One pairing step is required, once per profile.
 
+## Tests
+
+```bash
+pnpm --dir worker test
+```
+
+Covers the resolver, HMAC verification, the routing/Access prefix boundary, the redaction module,
+the Durable Object against real storage, and the extension's service worker driven through a
+mocked chrome API. The last two matter: stub out the Durable Object and a registry that rejected
+every pairing would still look green.
+
+For the whole path over real HTTP, including AMBIGUOUS:
+
+```bash
+pnpm --dir worker exec wrangler dev --port 8797 --local
+pnpm --dir worker e2e
+```
+
 ## Usage
 
 ```bash

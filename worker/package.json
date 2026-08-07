@@ -8,7 +8,8 @@
     "test": "vitest run",
     "lint": "tsc --noEmit",
     "deploy": "wrangler deploy",
-    "preview": "wrangler dev"
+    "preview": "wrangler dev",
+    "e2e": "node scripts/e2e-local.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260804.1",

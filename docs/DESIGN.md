@@ -230,4 +230,3 @@ Worker が `Access-Control-Allow-Origin: chrome-extension://<id>` を返せば h
 | target lease | 操作を行わないビーコン設計では保護対象が無い。`revision` を返して呼び手が再照合する |
 | URL/title のエンドツーエンド暗号化 | v0 は TTL と最小化で担保。鍵配送の設計が別途必要 |
 | 双方向コマンド経路 | 非目的（§0）。実装すると攻撃面が大きく変わる |
-| Durable Object 実体のテスト | 現在の router テストは DO をスタブに差し替えるため、DO が全拒否する実装でも緑になる。E2E で補っているが、DO 単体の自動テストは未整備 |
