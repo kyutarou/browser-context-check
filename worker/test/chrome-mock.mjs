@@ -19,6 +19,7 @@ export function installChromeMock({ tab, focused = true, permissions = ['tabs'] 
 
   const local = new Map();
   const session = new Map();
+  const alarms = new Map();
   const fetchCalls = [];
   let fetchResponse = { ok: true, status: 200, text: async () => '{"ok":true}' };
 
@@ -66,7 +67,17 @@ export function installChromeMock({ tab, focused = true, permissions = ['tabs'] 
       onStartup: add(listeners.runtimeStartup),
       onMessageExternal: add(listeners.messageExternal),
     },
-    alarms: { create() {}, onAlarm: add(listeners.alarm) },
+    alarms: {
+      // Modelled faithfully enough to catch the real trap: create() on an existing name replaces
+      // the alarm and restarts its interval.
+      create(name, info) {
+        alarms.set(name, { name, ...info, createdCount: (alarms.get(name)?.createdCount ?? 0) + 1 });
+      },
+      get(name, cb) {
+        cb(alarms.get(name));
+      },
+      onAlarm: add(listeners.alarm),
+    },
   };
 
   globalThis.fetch = async (url, init) => {
@@ -79,6 +90,7 @@ export function installChromeMock({ tab, focused = true, permissions = ['tabs'] 
     local,
     session,
     fetchCalls,
+    alarms,
     setFocused(v) {
       focused = v;
     },

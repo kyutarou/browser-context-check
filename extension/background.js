@@ -244,7 +244,14 @@ chrome.runtime.onStartup.addListener(() => schedule());
 // A service worker is evicted after ~30s idle, so the event listeners above are not enough to
 // keep the relay's view fresh while the user reads a page. A slow alarm refreshes it — as a
 // keepalive only; it must not make an idle browser look recently used.
-chrome.alarms.create('heartbeat', { periodInMinutes: 1 });
+// The existence check is load-bearing. create() with an existing name REPLACES the alarm and
+// restarts its interval, and this file re-runs on every service worker wake — so calling it
+// unconditionally means any event inside the period pushes the deadline out again and the alarm
+// never fires. Measured in production before this fix: 171 seconds of wall time produced exactly
+// one snapshot, and that one came from a user action rather than from the keepalive.
+chrome.alarms.get('heartbeat', (existing) => {
+  if (!existing) chrome.alarms.create('heartbeat', { periodInMinutes: 1 });
+});
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'heartbeat') schedule();
 });

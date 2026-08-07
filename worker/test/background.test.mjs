@@ -152,6 +152,23 @@ describe('background service worker', () => {
     expect(headers['x-bcc-sequence']).toBe('1');
   });
 
+  // The keepalive is the only thing keeping an idle browser's freshness alive, and it silently
+  // did nothing: create() replaces an existing alarm and restarts its interval, while this file
+  // re-runs on every service worker wake.
+  it('does not restart the heartbeat interval on every service worker wake', async () => {
+    mock.arm();
+    await loadBackground();
+    await waitFor(() => mock.alarms.has('heartbeat'));
+    expect(mock.alarms.get('heartbeat').periodInMinutes).toBe(1);
+
+    // Simulate the worker being evicted and woken again, repeatedly.
+    await loadBackground();
+    await loadBackground();
+    await settle();
+
+    expect(mock.alarms.get('heartbeat').createdCount).toBe(1);
+  });
+
   describe('pairing handed over by the console', () => {
     const bundle = () =>
       btoa(
