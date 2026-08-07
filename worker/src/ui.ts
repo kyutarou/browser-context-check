@@ -84,10 +84,14 @@ button.danger { background:none; color:var(--danger); border-color:currentColor;
 }
 .muted { color:var(--fg-subtle); font-size:14px; }
 .empty { color:var(--fg-subtle); font-size:14px; padding:24px 0; }
-select {
+select, input[type="text"] {
   font-family:inherit; font-size:14px; padding:7px 10px; border-radius:6px;
   border:1px solid var(--border); background:var(--surface); color:var(--fg);
 }
+input[type="text"] { min-width:240px; }
+details { margin-top:24px; }
+summary { cursor:pointer; font-size:14px; }
+details[open] summary { margin-bottom:12px; }
 pre {
   background:var(--surface-raised); border:1px solid var(--border); border-radius:8px;
   padding:16px; overflow-x:auto; font-family:var(--font-mono); font-size:13px; line-height:1.6; margin:16px 0 0;
@@ -128,14 +132,27 @@ pre {
   <section>
     <h2>新しいプロファイルを追加</h2>
     <p class="muted">
-      バンドルを発行し、対象ブラウザの拡張の設定画面に貼り付けます。1回限り・10分で失効します。
-      <strong>資格情報を含むため、他人に渡さないでください。</strong>
+      このブラウザに拡張が入っていれば、コピー＆ペーストなしで直接ペアリングできます。
+      資格情報が画面やクリップボードを通らないぶん安全です。
     </p>
     <div class="row">
-      <button class="act" id="issue" type="button">ペアリングバンドルを発行</button>
-      <button class="act ghost" id="copy" type="button" hidden>コピー</button>
+      <input type="text" id="alias" placeholder="プロファイル名（例 chrome-main）">
+      <button class="act" id="pairHere" type="button">この Chrome の拡張へ送る</button>
     </div>
-    <div id="codeBox" hidden><div class="code" id="code">—</div><p class="muted" id="codeNote"></p></div>
+    <p id="pairHereStatus" class="muted"></p>
+
+    <details>
+      <summary class="muted">別のブラウザに入れる場合（手動でコピー）</summary>
+      <p class="muted">
+        バンドルを発行し、対象ブラウザの拡張の設定画面に貼り付けます。1回限り・10分で失効します。
+        <strong>資格情報を含むため、他人に渡さないでください。</strong>
+      </p>
+      <div class="row">
+        <button class="act ghost" id="issue" type="button">ペアリングバンドルを発行</button>
+        <button class="act ghost" id="copy" type="button" hidden>コピー</button>
+      </div>
+      <div id="codeBox" hidden><div class="code" id="code">—</div><p class="muted" id="codeNote"></p></div>
+    </details>
   </section>
 </div>
 
@@ -218,6 +235,42 @@ async function load() {
 $('resolve').addEventListener('click', async () => {
   const res = await fetch(API + '/target?selector=' + encodeURIComponent($('selector').value));
   $('resolveOut').textContent = JSON.stringify(await res.json(), null, 2);
+});
+
+// Pinned by the manifest's key, so it is the same on every machine.
+const EXTENSION_ID = 'happeofpndgdgdjfcgjagobkjdaanjin';
+
+$('pairHere').addEventListener('click', async () => {
+  const alias = $('alias').value.trim();
+  const note = $('pairHereStatus');
+  if (!alias) { note.textContent = 'プロファイル名を入力してください。'; return; }
+
+  // chrome.runtime is only exposed to this page when an extension lists it in
+  // externally_connectable, so its absence is a reliable "not installed here".
+  if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+    note.textContent = 'このブラウザに拡張が見つかりません。先に拡張をインストールしてください。';
+    return;
+  }
+
+  note.textContent = '発行してペアリング中…';
+  try {
+    const res = await fetch(API + '/pairing-code', { method: 'POST', headers: CONSOLE_HEADERS });
+    const { bundle } = await res.json();
+    chrome.runtime.sendMessage(EXTENSION_ID, { type: 'pair', bundle, profileAlias: alias }, (reply) => {
+      if (chrome.runtime.lastError) {
+        note.textContent = '拡張に届きませんでした: ' + chrome.runtime.lastError.message;
+        return;
+      }
+      if (!reply || !reply.ok) {
+        note.textContent = 'ペアリング失敗: ' + ((reply && reply.reason) || '応答なし');
+        return;
+      }
+      note.textContent = 'ペアリング完了。拡張の設定画面で Agent Mode を ON にしてください。';
+      load();
+    });
+  } catch (e) {
+    note.textContent = '発行に失敗しました: ' + String(e).slice(0, 100);
+  }
 });
 
 $('issue').addEventListener('click', async () => {

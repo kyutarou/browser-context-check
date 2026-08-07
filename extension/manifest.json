@@ -11,6 +11,9 @@
   "optional_permissions": [
     "tabs"
   ],
+  "externally_connectable": {
+    "matches": ["https://dashboard.dxj.jp/*"]
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"

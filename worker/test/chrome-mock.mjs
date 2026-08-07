@@ -13,6 +13,7 @@ export function installChromeMock({ tab, focused = true, permissions = ['tabs'] 
     windowsFocusChanged: [],
     windowsRemoved: [],
     runtimeStartup: [],
+    messageExternal: [],
     alarm: [],
   };
 
@@ -61,7 +62,10 @@ export function installChromeMock({ tab, focused = true, permissions = ['tabs'] 
       onFocusChanged: add(listeners.windowsFocusChanged),
       onRemoved: add(listeners.windowsRemoved),
     },
-    runtime: { onStartup: add(listeners.runtimeStartup) },
+    runtime: {
+      onStartup: add(listeners.runtimeStartup),
+      onMessageExternal: add(listeners.messageExternal),
+    },
     alarms: { create() {}, onAlarm: add(listeners.alarm) },
   };
 

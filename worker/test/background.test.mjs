@@ -152,6 +152,60 @@ describe('background service worker', () => {
     expect(headers['x-bcc-sequence']).toBe('1');
   });
 
+  describe('pairing handed over by the console', () => {
+    const bundle = () =>
+      btoa(
+        JSON.stringify({
+          code: 'AAAA-BBBB-CCCC',
+          endpoint: 'https://dashboard.dxj.jp/browser-check/ingest/v1',
+          accessClientId: 'client.access',
+          accessClientSecret: 'secret',
+        }),
+      );
+
+    const send = (message, sender) =>
+      new Promise((resolve) => {
+        mock.listeners.messageExternal.forEach((fn) => fn(message, sender, resolve));
+      });
+
+    // Positive control: the intended sender must actually get through.
+    it('pairs when the console sends a valid bundle', async () => {
+      mock.setFetchResponse({
+        ok: true,
+        status: 200,
+        json: async () => ({ deviceId: 'device-1', relaySecret: 'bb'.repeat(32) }),
+        text: async () => '',
+      });
+      await loadBackground();
+
+      const reply = await send(
+        { type: 'pair', bundle: bundle(), profileAlias: 'chrome-main' },
+        { origin: 'https://dashboard.dxj.jp' },
+      );
+      expect(reply).toMatchObject({ ok: true, deviceId: 'device-1' });
+      expect(mock.local.get('profileAlias')).toBe('chrome-main');
+      // Pairing must not switch reporting on by itself.
+      expect(mock.local.get('agentMode')).toBeUndefined();
+    });
+
+    it('refuses a bundle from any other origin', async () => {
+      await loadBackground();
+      const reply = await send(
+        { type: 'pair', bundle: bundle(), profileAlias: 'chrome-main' },
+        { origin: 'https://evil.example.com' },
+      );
+      expect(reply).toEqual({ ok: false, reason: 'unexpected_origin' });
+      expect(mock.fetchCalls).toHaveLength(0);
+      expect(mock.local.has('relaySecret')).toBe(false);
+    });
+
+    it('refuses a message it does not recognise', async () => {
+      await loadBackground();
+      const reply = await send({ type: 'something-else' }, { origin: 'https://dashboard.dxj.jp' });
+      expect(reply).toEqual({ ok: false, reason: 'unknown_message' });
+    });
+  });
+
   it('never reports an incognito tab unless the user opted in', async () => {
     mock = installChromeMock({ tab: { ...TAB, incognito: true } });
     mock.arm();

@@ -3,6 +3,7 @@
 // Nothing here runs until Agent Mode is enabled AND pairing has produced a secret.
 // The extension ships inert.
 
+import { pairWithBundle } from './lib/pair.js';
 import { detectBrowser } from './lib/browser-kind.js';
 import { getInstallationId, getBrowserSessionId } from './lib/ids.js';
 import { redactUrl } from './lib/redact.js';
@@ -191,6 +192,32 @@ async function report() {
   if (!snapshot) return;
   await push(snapshot, settings, creds);
 }
+
+/**
+ * Pairing handed over directly by the console, so nobody has to copy a base64 blob between two
+ * windows — the step that goes wrong most often, and the one that puts the credentials on the
+ * clipboard.
+ *
+ * The manifest restricts senders to the console's origin, and that origin sits behind Cloudflare
+ * Access. The origin is re-checked here rather than trusted from the manifest alone.
+ */
+const CONSOLE_ORIGIN = 'https://dashboard.dxj.jp';
+
+chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+  if (sender.origin !== CONSOLE_ORIGIN) {
+    sendResponse({ ok: false, reason: 'unexpected_origin' });
+    return false;
+  }
+  if (!message || message.type !== 'pair') {
+    sendResponse({ ok: false, reason: 'unknown_message' });
+    return false;
+  }
+
+  // Agent Mode stays off: pairing grants no permission and starts no reporting. The user still
+  // has to opt in, and Chrome still has to prompt for `tabs`.
+  pairWithBundle(message.bundle, message.profileAlias).then(sendResponse);
+  return true; // response is async
+});
 
 // Events the user causes: these move lastInteractionAt.
 chrome.tabs.onActivated.addListener(() => schedule({ interaction: true }));
