@@ -13,8 +13,11 @@ export interface Snapshot {
   windowId: number;
   tabId: number;
   focusState: 'foreground' | 'unfocused';
-  url: string;
-  host: string;
+  /** null when the active tab is one we refuse to disclose; the target itself is still valid. */
+  url: string | null;
+  host: string | null;
+  /** Why the address was withheld, e.g. 'blocked_scheme'. null when the url is present. */
+  suppressed: string | null;
   title: string | null;
   /**
    * When the user last actually did something in this browser: switched tab, loaded a page, or

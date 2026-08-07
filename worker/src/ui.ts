@@ -122,7 +122,7 @@ pre {
     <h2>ペアリング済みプロファイル</h2>
     <div class="scroll"><table>
       <thead><tr>
-        <th>プロファイル</th><th>ブラウザ</th><th>状態</th><th>tab / window</th><th>最終受信</th><th></th>
+        <th>プロファイル</th><th>ブラウザ</th><th>状態</th><th>tab / window</th><th>ページ</th><th>最終受信</th><th></th>
       </tr></thead>
       <tbody id="rows"></tbody>
     </table></div>
@@ -203,6 +203,7 @@ async function load() {
       { text: s ? [s.browserKind, s.engineVersion].filter(Boolean).join(' ') : '—' },
       { html: '<span class="tag ' + state.cls + '">' + state.label + '</span>' },
       { text: s ? s.tabId + ' / ' + s.windowId : '—', mono: true },
+      { text: s ? (s.host || (s.suppressed ? '(非表示のページ)' : '—')) : '—' },
       { text: s ? relative(s.observedAt) : '—' },
     ];
     for (const c of cells) {

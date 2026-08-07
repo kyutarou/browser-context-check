@@ -19,6 +19,7 @@ function snap(over: Partial<Snapshot> = {}): Snapshot {
     focusState: 'unfocused',
     url: 'https://example.com/',
     host: 'example.com',
+    suppressed: null,
     title: null,
     lastInteractionAt: new Date(NOW - 1000).toISOString(),
     observedAt: new Date(NOW - 1000).toISOString(),

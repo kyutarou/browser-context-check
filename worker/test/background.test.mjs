@@ -215,12 +215,31 @@ describe('background service worker', () => {
     expect(mock.fetchCalls).toHaveLength(0);
   });
 
-  it('never reports a browser-internal page', async () => {
-    mock = installChromeMock({ tab: { ...TAB, url: 'chrome://settings' } });
+  it('withholds a browser-internal address but still reports liveness', async () => {
+    // Dropping the whole snapshot here made a browser parked on a new tab look exactly like a
+    // browser that had been closed — both went STALE — which is how this was found in production.
+    mock = installChromeMock({ tab: { ...TAB, url: 'chrome://newtab/' } });
     mock.arm();
     await loadBackground();
     mock.listeners.tabsActivated.forEach((fn) => fn({ tabId: 101 }));
-    await settle();
-    expect(mock.fetchCalls).toHaveLength(0);
+    await waitFor(() => mock.fetchCalls.length > 0);
+
+    const snap = mock.lastSnapshot();
+    expect(snap.url).toBeNull();
+    expect(snap.host).toBeNull();
+    expect(snap.suppressed).toBe('blocked_scheme');
+    // Identity and liveness survive: the agent can still be told which tab this is.
+    expect(snap.tabId).toBe(101);
+    expect(snap.windowId).toBe(11);
+  });
+
+  it('withholds the title too when the address is withheld', async () => {
+    mock = installChromeMock({ tab: { ...TAB, url: 'chrome://settings', title: 'Secret Settings' } });
+    mock.arm();
+    mock.local.set('sendTitle', true);
+    await loadBackground();
+    mock.listeners.tabsActivated.forEach((fn) => fn({ tabId: 101 }));
+    await waitFor(() => mock.fetchCalls.length > 0);
+    expect(mock.lastSnapshot().title).toBeNull();
   });
 });

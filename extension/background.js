@@ -102,11 +102,14 @@ async function buildSnapshot(tab, settings, creds) {
       getLastInteractionAt(),
     ]);
 
+  // Incognito is an explicit opt-out: report nothing at all, not even that the browser is alive.
   if (tab.incognito && !settings.includeIncognito) return null;
 
   const redacted = redactUrl(tab.url, { fullUrlAllowlist: settings.fullUrlAllowlist });
-  if (!redacted.send) return null;
 
+  // A page we refuse to disclose must not also silence the heartbeat. Dropping the snapshot
+  // entirely made a browser parked on a new tab indistinguishable from a browser that had been
+  // closed: both simply went STALE. Report identity and liveness, withhold only the address.
   const observedAt = new Date().toISOString();
 
   return {
@@ -121,9 +124,10 @@ async function buildSnapshot(tab, settings, creds) {
     windowId: tab.windowId,
     tabId: tab.id,
     focusState,
-    url: redacted.url,
-    host: redacted.host,
-    title: settings.sendTitle ? tab.title || null : null,
+    url: redacted.send ? redacted.url : null,
+    host: redacted.send ? redacted.host : null,
+    suppressed: redacted.send ? null : redacted.reason,
+    title: redacted.send && settings.sendTitle ? tab.title || null : null,
     // Falling back to now on a session with no recorded interaction yet would let a freshly
     // started background browser outrank the one the user is actually using.
     lastInteractionAt: lastInteractionAt || observedAt,
