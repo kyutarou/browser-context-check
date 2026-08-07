@@ -26,7 +26,7 @@ export interface Snapshot {
    * Ranking by send time instead would make "the browser I was last looking at" mean "the browser
    * that most recently sent a keepalive", which is a different — and wrong — question.
    */
-  lastInteractionAt: string;
+  lastInteractionAt: string | null;
   /** When the extension composed this snapshot. Client clock: untrusted, used only for display. */
   observedAt: string;
   /** When the relay accepted it. Server clock: this is what freshness is measured against. */
@@ -72,9 +72,11 @@ function ageMs(s: Snapshot, now: number): number {
   return now - Date.parse(s.receivedAt);
 }
 
-function interactionAt(s: Snapshot): number {
+/** null means the browser has not recorded a user action yet — not that it just had one. */
+function interactionAt(s: Snapshot): number | null {
+  if (!s.lastInteractionAt) return null;
   const t = Date.parse(s.lastInteractionAt);
-  return Number.isFinite(t) ? t : Date.parse(s.receivedAt);
+  return Number.isFinite(t) ? t : null;
 }
 
 /**
@@ -120,11 +122,21 @@ export function resolve(
       pool = fresh;
   }
 
-  const sorted = [...pool].sort((a, b) => interactionAt(b) - interactionAt(a));
-  const newest = sorted[0];
-  const newestAt = interactionAt(newest);
+  // A browser that knows when it was last used always beats one that does not. Ranking the two
+  // together — by falling back to arrival time for the unknown case — would let a freshly started
+  // browser's keepalive outrank the browser the user actually left.
+  const known = pool.filter((s) => interactionAt(s) !== null);
+  const ranked = known.length > 0 ? known : pool;
+  const rankOf =
+    known.length > 0
+      ? (s: Snapshot) => interactionAt(s) as number
+      : (s: Snapshot) => Date.parse(s.receivedAt);
 
-  const contenders = sorted.filter((s) => newestAt - interactionAt(s) <= AMBIGUITY_WINDOW_MS);
+  const sorted = [...ranked].sort((a, b) => rankOf(b) - rankOf(a));
+  const newest = sorted[0];
+  const newestAt = rankOf(newest);
+
+  const contenders = sorted.filter((s) => newestAt - rankOf(s) <= AMBIGUITY_WINDOW_MS);
   const distinct = new Set(contenders.map(revisionOf));
 
   if (distinct.size > 1) return { status: 'AMBIGUOUS', candidates: contenders };

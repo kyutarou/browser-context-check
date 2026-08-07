@@ -143,6 +143,42 @@ describe('resolve', () => {
     expect(result.target.profileAlias).toBe('chrome-work');
   });
 
+  // storage.session is empty after a browser start or an extension reload, so a browser can
+  // legitimately not know when it was last used. It must not be treated as "used just now".
+  it('ranks a browser with no recorded interaction below one that has one', () => {
+    const known = snap({
+      installationId: 'inst-a',
+      profileAlias: 'chrome-work',
+      lastInteractionAt: new Date(NOW - 60_000).toISOString(),
+      receivedAt: new Date(NOW - 60_000).toISOString(),
+    });
+    const unknown = snap({
+      installationId: 'inst-b',
+      profileAlias: 'edge-main',
+      tabId: 200,
+      lastInteractionAt: null,
+      // Reported a moment ago by its keepalive, but it has no idea when it was last touched.
+      receivedAt: new Date(NOW - 500).toISOString(),
+    });
+    const result = resolve([known, unknown], { kind: 'lastBrowser' }, NOW, TTL);
+    expect(result.status).toBe('TARGET');
+    if (result.status !== 'TARGET') return;
+    expect(result.target.profileAlias).toBe('chrome-work');
+  });
+
+  it('still answers when no browser knows its last interaction', () => {
+    // Falls back to arrival order only when there is nothing better for any candidate.
+    const a = snap({ installationId: 'inst-a', lastInteractionAt: null, receivedAt: new Date(NOW - 30_000).toISOString() });
+    const b = snap({
+      installationId: 'inst-b', profileAlias: 'edge-main', tabId: 200,
+      lastInteractionAt: null, receivedAt: new Date(NOW - 500).toISOString(),
+    });
+    const result = resolve([a, b], { kind: 'lastBrowser' }, NOW, TTL);
+    expect(result.status).toBe('TARGET');
+    if (result.status !== 'TARGET') return;
+    expect(result.target.profileAlias).toBe('edge-main');
+  });
+
   it('measures freshness on the server clock, not the reported one', () => {
     // A client claiming a recent observedAt cannot keep a long-dead snapshot alive.
     const lying = snap({

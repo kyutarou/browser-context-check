@@ -100,6 +100,20 @@ describe('background service worker', () => {
     expect(Date.parse(afterHeartbeat.observedAt)).toBeGreaterThan(Date.parse(afterInteraction));
   });
 
+  // The regression this replaced: falling back to "now" made every keepalive from a browser with
+  // no recorded interaction claim the user had just been there.
+  it('reports lastInteractionAt as null when nothing has been recorded yet', async () => {
+    mock.arm();
+    await loadBackground();
+    // A heartbeat, with no prior user event in this browser session.
+    mock.listeners.alarm.forEach((fn) => fn({ name: 'heartbeat' }));
+    await waitFor(() => mock.fetchCalls.length > 0);
+
+    const snap = mock.lastSnapshot();
+    expect(snap.lastInteractionAt).toBeNull();
+    expect(snap.observedAt).toBeTruthy();
+  });
+
   it('advances lastInteractionAt when a window gains focus but not when it loses focus', async () => {
     mock.arm();
     await loadBackground();

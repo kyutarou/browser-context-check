@@ -141,9 +141,15 @@ export class BrowserContextRegistry implements DurableObject {
         Number.isFinite(observed) && observed < receivedAt.getTime()
           ? payload.observedAt
           : receivedAt.toISOString();
-      const interaction = Date.parse(payload.lastInteractionAt);
-      const lastInteractionAt =
-        Number.isFinite(interaction) && interaction < receivedAt.getTime()
+      // "I don't know when I was last used" must survive as null. Substituting the receipt time
+      // here would turn every keepalive from a freshly started browser into a claim that the user
+      // had just been in it, which is the whole thing lastInteractionAt exists to prevent.
+      // A skewed future value is still a real interaction, so that one is clamped rather than
+      // dropped.
+      const interaction = payload.lastInteractionAt ? Date.parse(payload.lastInteractionAt) : NaN;
+      const lastInteractionAt = !payload.lastInteractionAt
+        ? null
+        : Number.isFinite(interaction) && interaction < receivedAt.getTime()
           ? payload.lastInteractionAt
           : receivedAt.toISOString();
 

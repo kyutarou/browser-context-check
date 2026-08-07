@@ -128,9 +128,11 @@ async function buildSnapshot(tab, settings, creds) {
     host: redacted.send ? redacted.host : null,
     suppressed: redacted.send ? null : redacted.reason,
     title: redacted.send && settings.sendTitle ? tab.title || null : null,
-    // Falling back to now on a session with no recorded interaction yet would let a freshly
-    // started background browser outrank the one the user is actually using.
-    lastInteractionAt: lastInteractionAt || observedAt,
+    // null, never "now". storage.session is empty after a browser start or an extension reload
+    // until the user actually does something, and defaulting to the current time there makes
+    // every keepalive claim the user was just here — reintroducing, through the back door, the
+    // exact bug lastInteractionAt exists to prevent. The resolver ranks "unknown" below "known".
+    lastInteractionAt: lastInteractionAt || null,
     observedAt,
     eventId: crypto.randomUUID(),
   };
